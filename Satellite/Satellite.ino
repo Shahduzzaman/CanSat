@@ -30,6 +30,30 @@ float dt, Humidity, Temperature, Pressure, filteredAngleX, filteredAngleY;
 #define LED_PIN 13
 bool blinkState = false;
 
+float RateRoll, RatePitch, RateYaw;
+float RateCalibrationRoll, RateCalibrationPitch, RateCalibrationYaw;
+int RateCalibrationNumber;
+void gyro_signals(void) {
+  Wire.beginTransmission(0x68);
+  Wire.write(0x1A);
+  Wire.write(0x05);
+  Wire.endTransmission(); 
+  Wire.beginTransmission(0x68);
+  Wire.write(0x1B);
+  Wire.write(0x08);
+  Wire.endTransmission();
+  Wire.beginTransmission(0x68);
+  Wire.write(0x43);
+  Wire.endTransmission(); 
+  Wire.requestFrom(0x68,6);
+  int16_t GyroX=Wire.read()<<8 | Wire.read();
+  int16_t GyroY=Wire.read()<<8 | Wire.read();
+  int16_t GyroZ=Wire.read()<<8 | Wire.read();
+  RateRoll=(float)GyroX/65.5;
+  RatePitch=(float)GyroY/65.5;
+  RateYaw=(float)GyroZ/65.5;
+}
+
 void setup() {
   //dht code
   Serial.begin(9600);
@@ -53,12 +77,28 @@ void setup() {
     #elif I2CDEV_IMPLEMENTATION == I2CDEV_BUILTIN_FASTWIRE
         Fastwire::setup(400, true);
     #endif
-    Serial.begin(9600);
-    Serial.println("Initializing I2C devices...");
-    accelgyro.initialize();
-    Serial.println("Testing device connections...");
-    Serial.println(accelgyro.testConnection() ? "MPU6050 connection successful" : "MPU6050 connection failed");
-    pinMode(LED_PIN, OUTPUT);
+  pinMode(13, OUTPUT);
+  digitalWrite(13, HIGH);
+  Wire.setClock(400000);
+  Wire.begin();
+  delay(250);
+  Wire.beginTransmission(0x68); 
+  Wire.write(0x6B);
+  Wire.write(0x00);
+  Wire.endTransmission();
+  for (RateCalibrationNumber=0;
+         RateCalibrationNumber<2000; 
+         RateCalibrationNumber ++) {
+    gyro_signals();
+    RateCalibrationRoll+=RateRoll;
+    RateCalibrationPitch+=RatePitch;
+    RateCalibrationYaw+=RateYaw;
+    delay(1);
+  }
+  RateCalibrationRoll/=2000;
+  RateCalibrationPitch/=2000;
+  RateCalibrationYaw/=2000;
+  
     lastTime = millis();
     
   // nrf code  
@@ -112,6 +152,11 @@ void loop() {
   filteredAngleX = 0.98 * (filteredAngleX + (gx * dt)) + (0.02 * roll);
   filteredAngleY = 0.98 * (filteredAngleY + (gy * dt)) + (0.02 * pitch);
 
+  gyro_signals();
+  RateRoll-=RateCalibrationRoll;
+  RatePitch-=RateCalibrationPitch;
+  RateYaw-=RateCalibrationYaw;
+
   // Create a struct to hold the data
   struct {
     float humidity;
@@ -119,15 +164,21 @@ void loop() {
     float pressure;
     float angleX;
     float angleY;
-  } data = {Humidity, Temperature, Pressure, filteredAngleX, filteredAngleY};
+    float RateRoll;
+    float RatePitch;
+    float RateYaw;
+  } data = {Humidity, Temperature, Pressure, filteredAngleX, filteredAngleY, RateRoll, RatePitch, RateYaw};
 
   // Send the data
   radio.write(&data, sizeof(data));
 
   // Print to check from transmitter end, only for testing time.
-  Serial.print("\tHumidity: "); Serial.print(data.humidity);
-  Serial.print("\tTemperature: "); Serial.print(data.temp); Serial.print(" °C");
-  Serial.print("\tPressure: "); Serial.print(data.pressure);
-  Serial.print("\tRoll: "); Serial.print(data.angleX);
-  Serial.print("\tPitch: "); Serial.println(data.angleY);
+  Serial.print("Humidity: "); Serial.print(data.humidity);
+  Serial.print(" Temperature: "); Serial.print(data.temp); Serial.print(" °C");
+  Serial.print(" Pressure: "); Serial.print(data.pressure);
+  //Serial.print(" Roll: "); Serial.print(data.angleX);
+  //Serial.print(" Pitch: "); Serial.println(data.angleY);
+  Serial.print(" Roll rate [°/s]= "); Serial.print(data.RateRoll); 
+  Serial.print(" Pitch Rate [°/s]= "); Serial.print(data.RatePitch);
+  Serial.print(" Yaw Rate [°/s]= "); Serial.println(data.RateYaw);
 }
