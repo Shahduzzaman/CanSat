@@ -17,7 +17,7 @@
 #define I2C_ADDRESS 0x77
 
 RF24 radio(7, 8); // CE, CSN pins
-const byte address[6] = "00169";
+const byte address[6] = "00001";
 
 DHT dht(DHTPIN, DHTTYPE);
 BMP180I2C bmp180(I2C_ADDRESS);
@@ -25,7 +25,7 @@ MPU6050 accelgyro;
 unsigned long lastTime;
 int16_t ax, ay, az;
 int16_t gx, gy, gz;
-float dt, Humidity, Temperature, Pressure, filteredAngleX, filteredAngleY;
+float dt, Humidity, Temperature, Pressure, filteredAngleX, filteredAngleY, AltuBaro;
 #define OUTPUT_READABLE_ACCELGYRO
 #define LED_PIN 13
 bool blinkState = false;
@@ -194,32 +194,10 @@ void setup() {
 
 void loop() {
   //dht
-  delay(100);
-  float h = dht.readHumidity();
-  if (isnan(h)) {
-    Serial.println(F("Failed to read from DHT sensor!"));
-  }
-  Humidity = h;
+  Humidity = dht.readHumidity();
  
   // bmp code 
-  if (!bmp180.measureTemperature())
-  {
-    Serial.println("could not start temperature measurement, is a measurement already running?");
-  }
-  do
-  {
-    delay(100);
-  } while (!bmp180.hasValue());
   Temperature = bmp180.getTemperature();
-  
-  if (!bmp180.measurePressure())
-  {
-    Serial.println("could not start perssure measurement, is a measurement already running?");
-  }
-  do
-  {
-    delay(100);
-  } while (!bmp180.hasValue());
   Pressure = bmp180.readPressure() / 100.0F;
   
   //mpu code
@@ -243,7 +221,7 @@ void loop() {
 
   barometer_signals();
   AltitudeBarometer-=AltitudeBarometerStartUp;
-  
+  AltuBaro = AltitudeBarometer;
   // Create a struct to hold the data
   struct {
     float humidity;
@@ -254,8 +232,8 @@ void loop() {
     float RateRoll;
     float RatePitch;
     float RateYaw;
-    float AltitudeBarometer;
-  } data = {Humidity, Temperature, Pressure, filteredAngleX, filteredAngleY, RateRoll, RatePitch, RateYaw, AltitudeBarometer};
+    float altitudeBarometer;
+  } data = {Humidity, Temperature, Pressure, filteredAngleX, filteredAngleY, RateRoll, RatePitch, RateYaw, AltuBaro};
 
   // Send the data
   radio.write(&data, sizeof(data));
@@ -264,11 +242,11 @@ void loop() {
   Serial.print("Humid.: "); Serial.print(data.humidity);
   Serial.print(" Temp.: "); Serial.print(data.temp); Serial.print(" °C");
   Serial.print(" Pres.: "); Serial.print(data.pressure);
-  //Serial.print(" Roll: "); Serial.print(data.angleX);
-  //Serial.print(" Pitch: "); Serial.println(data.angleY);
+//  Serial.print(" Roll: "); Serial.print(data.angleX);
+//  Serial.print(" Pitch: "); Serial.print(data.angleY);
   Serial.print(" Roll rate [°/s]= "); Serial.print(data.RateRoll); 
   Serial.print(" Pitch Rate [°/s]= "); Serial.print(data.RatePitch);
   Serial.print(" Yaw Rate [°/s]= "); Serial.print(data.RateYaw);
-  Serial.print(" Altitude [cm]: "); Serial.println(data.AltitudeBarometer);
+  Serial.print(" Altitude [cm]: "); Serial.println(data.altitudeBarometer);
   
 }
