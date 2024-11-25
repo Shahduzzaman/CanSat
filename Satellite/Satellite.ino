@@ -2,7 +2,6 @@
 #include "MPU6050_6Axis_MotionApps20.h"
 #include "DHT.h"
 #include <SPI.h>
-#include <Arduino.h>
 #include <Wire.h>
 #include <BMP180I2C.h>
 #include <nRF24L01.h>
@@ -43,6 +42,7 @@ float Roll;
 float Pitch;
 float Yaw;
 double AltuBaro;
+String compassDirection;
 
 volatile bool mpuInterrupt = false;
 
@@ -50,8 +50,18 @@ void dmpDataReady() {
     mpuInterrupt = true;
 }
 
+// Function to convert Yaw to compass result
+String getCompassDirection(float yaw) {
+    // Define compass directions
+    String directions[] = {"N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"};
+
+    // Calculate index based on Yaw value
+    int index = int((yaw + 360.0) / 22.5) % 16;
+
+    return directions[index];
+}
+
 void setup() {
-  //mpu
     Wire.begin();
     Wire.setClock(400000);
     Serial.begin(9600);
@@ -92,76 +102,68 @@ void setup() {
     }
 
     pinMode(LED_PIN, OUTPUT);
-  //dht code
 
-  Serial.println(F("DHTxx test!"));
-  dht.begin();
-//bmp 180
-  if (!bmp180.begin())
-  {
-    Serial.println("begin() failed. check your BMP180 Interface and I2C Address.");
-    while (1);
-  }
+    Serial.println(F("DHTxx test!"));
+    dht.begin();
 
-  //reset sensor to default parameters.
-  bmp180.resetToDefaults();
+    if (!bmp180.begin()) {
+        Serial.println("begin() failed. check your BMP180 Interface and I2C Address.");
+        while (1);
+    }
 
-  //enable ultra high resolution mode for pressure measurements
-  bmp180.setSamplingMode(BMP180MI::MODE_UHR);
+    bmp180.resetToDefaults();
+    bmp180.setSamplingMode(BMP180MI::MODE_UHR);
 
-  // nrf code  
-  radio.begin();
-  radio.openWritingPipe(address);
-  radio.setPALevel(RF24_PA_MIN);
-  radio.stopListening();
-    
+    radio.begin();
+    radio.openWritingPipe(address);
+    radio.setPALevel(RF24_PA_MIN);
+    radio.stopListening();
 }
 
 void loop() {
     if (!dmpReady) return;
+
     if (mpu.dmpGetCurrentFIFOPacket(fifoBuffer)) {
         mpu.dmpGetQuaternion(&q, fifoBuffer);
         mpu.dmpGetGravity(&gravity, &q);
         mpu.dmpGetYawPitchRoll(ypr, &q, &gravity);
 
-        Yaw = ypr[0] * 180/M_PI;
+        Yaw = ypr[0] * 180 / M_PI;
 
-        Pitch = ypr[1] * 180/M_PI;
-
-        Roll = ypr[2] * 180/M_PI;
+        // Call the function to get the compass result
+        String compassDirection = getCompassDirection(Yaw);
 
         blinkState = !blinkState;
         digitalWrite(LED_PIN, blinkState);
     }
-      //dht
-  Humidity = dht.readHumidity();
- 
-  // bmp code 
-  Temperature = bmp180.getTemperature();
-  Pressure = bmp180.readPressure() / 100.0F;
 
-  AltuBaro = 44330 * (1- (pow((Pressure/seaLevelPressure_hPa ), (1/5.255) ) ) );
-  //AltuBaro = bmp.readAltitude();
-  
+    Humidity = dht.readHumidity();
+    Temperature = bmp180.getTemperature();
+    Pressure = bmp180.readPressure() / 100.0F;
+
+    AltuBaro = 44330 * (1 - (pow((Pressure / seaLevelPressure_hPa), (1 / 5.255))));
+    
+    compassDirection = getCompassDirection(Yaw);
     // Create a struct to hold the data
-  struct {
-    float humidity;
-    float temp;
-    float pressure;
-    float RateRoll;
-    float RatePitch;
-    float RateYaw;
-    float altitudeBarometer;
-  } data = {Humidity, Temperature, Pressure, Roll, Pitch, Yaw, AltuBaro};
+    struct {
+        float humidity;
+        float temp;
+        float pressure;
+        float RateRoll;
+        float RatePitch;
+        float RateYaw;
+        float altitudeBarometer;
+        String compassDirection; // Added compass direction to the struct
+    } data = {Humidity, Temperature, Pressure, Roll, Pitch, Yaw, AltuBaro, compassDirection};
 
-  // Send the data
-  radio.write(&data, sizeof(data));
+    radio.write(&data, sizeof(data));
 
-  Serial.print("Humid.: "); Serial.print(data.humidity);
-  Serial.print("  Temp.: "); Serial.print(data.temp); Serial.print(" °C");
-  Serial.print("  Pres.: "); Serial.print(data.pressure); Serial.print(" Pa");
-  Serial.print("  Roll = "); Serial.print(data.RateRoll); 
-  Serial.print("  Pitch = "); Serial.print(data.RatePitch);
-  Serial.print("  Yaw = "); Serial.print(data.RateYaw);
-  Serial.print("  Altitude [M]: "); Serial.println(data.altitudeBarometer);
+    Serial.print("Humid.: "); Serial.print(data.humidity);
+    Serial.print("  Temp.: "); Serial.print(data.temp); Serial.print(" °C");
+    Serial.print("  Pres.: "); Serial.print(data.pressure); Serial.print(" Pa");
+    Serial.print("  Roll = "); Serial.print(data.RateRoll);
+    Serial.print("  Pitch = "); Serial.print(data.RatePitch);
+    Serial.print("  Yaw = "); Serial.print(data.RateYaw);
+    Serial.print("  Altitude [M]: "); Serial.print(data.altitudeBarometer);
+    Serial.print("  Compass: "); Serial.println(data.compassDirection);
 }
